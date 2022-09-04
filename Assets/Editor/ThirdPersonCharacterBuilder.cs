@@ -1,23 +1,26 @@
 using Cinemachine;
-using UnityEditor;
-using UnityEngine;
 using StarterAssets;
-using UnityEngine.InputSystem;
+using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
-public class ThirdPersonCharacterBuilder
+public static class ThirdPersonCharacterBuilder
 {
-    private const string AnimatorPath = "Assets/StarterAssets/ThirdPersonController/Character/Animations/StarterAssetsThirdPerson.controller";
-    private const string InputAssetPath = "Assets/StarterAssets/InputSystem/StarterAssets.inputactions";
-    private const string CameraTargetObjectName = "CameraTarget";
+    private const string ANIMATOR_PATH = "Assets/StarterAssets/ThirdPersonController/Character/Animations/StarterAssetsThirdPerson.controller";
+    private const string INPUT_ASSET_PATH = "Assets/StarterAssets/InputSystem/StarterAssets.inputactions";
+    private const string CAMERA_TARGET_OBJECT_NAME = "CameraTarget";
 
-	[MenuItem("Ready Player Me/Setup Character", true, 0)]
+    private const string LANDING_AUDIO_PATH = "Assets/StarterAssets/ThirdPersonController/Character/Sfx/Player_Land.wav";
+    private const string FOOTSTEP_AUDIO_PATH = "Assets/StarterAssets/ThirdPersonController/Character/Sfx/Player_Footstep";
+
+    [MenuItem("Ready Player Me/Setup Character", true, 0)]
     public static bool SetupCharacterValidate()
     {
         return Selection.activeGameObject != null;
     }
-	
+
     [MenuItem("Ready Player Me/Setup Character")]
     public static void SetupCharacter()
     {
@@ -27,13 +30,14 @@ public class ThirdPersonCharacterBuilder
         character.tag = "Player";
 
         // Create camera follow target
-        GameObject cameraTarget = new GameObject(CameraTargetObjectName);
+        GameObject cameraTarget = new GameObject(CAMERA_TARGET_OBJECT_NAME);
         cameraTarget.transform.parent = character.transform;
         cameraTarget.transform.localPosition = new Vector3(0, 1.5f, 0);
+        cameraTarget.tag = "CinemachineTarget";
 
         // Set the animator controller and disable root motion
         Animator animator = character.GetComponent<Animator>();
-        animator.runtimeAnimatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(AnimatorPath);
+        animator.runtimeAnimatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(ANIMATOR_PATH);
         animator.applyRootMotion = false;
 
         // Add tp controller and set values
@@ -42,26 +46,35 @@ public class ThirdPersonCharacterBuilder
         tpsController.GroundLayers = 1;
         tpsController.JumpTimeout = 0.5f;
         tpsController.CinemachineCameraTarget = cameraTarget;
-		
+        tpsController.LandingAudioClip = AssetDatabase.LoadAssetAtPath<AudioClip>(LANDING_AUDIO_PATH);
+        tpsController.FootstepAudioClips = new AudioClip[]
+        {
+            AssetDatabase.LoadAssetAtPath<AudioClip>($"{FOOTSTEP_AUDIO_PATH}_01.wav"),
+            AssetDatabase.LoadAssetAtPath<AudioClip>($"{FOOTSTEP_AUDIO_PATH}_02.wav")
+        };
+        
         // Add character controller and set size
         CharacterController characterController = character.GetComponent<CharacterController>();
         characterController.center = new Vector3(0, 1, 0);
         characterController.radius = 0.3f;
         characterController.height = 1.9f;
 
-        // Add player input and set actions asset
-        PlayerInput playerInput = character.GetComponent<PlayerInput>();
-        playerInput.actions = AssetDatabase.LoadAssetAtPath<InputActionAsset>(InputAssetPath);
-
         // Add components with default values
         character.AddComponent<BasicRigidBodyPush>();
         character.AddComponent<StarterAssetsInputs>();
+    
+        // Add player input and set actions asset
+        PlayerInput playerInput = character.GetComponent<PlayerInput>();
+        playerInput.actions = AssetDatabase.LoadAssetAtPath<InputActionAsset>(INPUT_ASSET_PATH);
+    
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
         
         // 
         var camera = Object.FindObjectOfType<CinemachineVirtualCamera>();
-        camera.Follow = cameraTarget.transform;
-        camera.LookAt = cameraTarget.transform;
-
-        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        if (camera)
+        {
+            camera.Follow = cameraTarget.transform;
+            camera.LookAt = cameraTarget.transform;
+        }
     }
 }
