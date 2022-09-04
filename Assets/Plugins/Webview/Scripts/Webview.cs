@@ -1,144 +1,226 @@
 using System;
-using System.IO;
+using Newtonsoft.Json;
 using UnityEngine;
-using System.Collections;
-using UnityEngine.Networking;
 
-public class Webview
+namespace ReadyPlayerMe
 {
-    private const string WebViewFileName = "webview.html";
-
-    private MonoBehaviour parent;
-    private WebviewWindowBase webViewObject;
-    private int left, top, right, bottom;
-
-    // Event to call when webview starts, receives message.
-    public Action<string> OnWebviewStarted;
-
-    // Event to call when avatar is created, receives GLB url.
-    public Action<string> OnAvatarCreated;
-
-    /// <summary>
-    ///     Create webview object attached to a MonoBehaviour object
-    /// </summary>
-    /// <param name="parent">Parent game object.</param>
-    public void CreateWebview(MonoBehaviour parent)
+    public class WebView : MonoBehaviour
     {
-        this.parent = parent;
+        private const string DATA_URL_FIELD_NAME = "url";
+        private const string AVATAR_EXPORT_EVENT_NAME = "v1.avatar.exported";
 
-        if (SetWebviewWindow())
+        private WebViewWindowBase webViewObject = null;
+
+        [SerializeField] private MessagePanel messagePanel = null;
+
+        [Header("Padding")]
+        [SerializeField] private int left;
+        [SerializeField] private int top;
+        [SerializeField] private int right;
+        [SerializeField] private int bottom;
+
+        public bool Loaded { get; private set; }
+
+        // Event to call when avatar is created, receives GLB url.
+        public Action<string> OnAvatarCreated;
+
+        public bool KeepSessionAlive { get; set; } = true;
+
+        /// <summary>
+        ///     Create WebView object attached to a MonoBehaviour object
+        /// </summary>
+        public void CreateWebView()
         {
-            parent.StartCoroutine(LoadWebviewURL());
+            if (Application.internetReachability == NetworkReachability.NotReachable)
+            {
+                messagePanel.SetMessage(MessagePanel.MessageType.NetworkError);
+                messagePanel.SetVisible(true);
+            }
+            else
+            {
+#if UNITY_EDITOR || !(UNITY_ANDROID || UNITY_IOS)
+                messagePanel.SetMessage(MessagePanel.MessageType.NotSupported);
+                messagePanel.SetVisible(true);
+#else
+                    if (webViewObject == null)
+                    {
+                        messagePanel.SetMessage(MessagePanel.MessageType.Loading);
+                        messagePanel.SetVisible(true);
+
+                        #if UNITY_ANDROID
+                            webViewObject = gameObject.AddComponent<AndroidWebViewWindow>();
+                        #elif UNITY_IOS
+                            webViewObject = gameObject.AddComponent<IOSWebViewWindow>();
+                        #endif
+                    }
+
+                    webViewObject.OnLoaded = OnLoaded;
+                    webViewObject.OnJS = OnWebMessageReceived;
+
+                    WebViewOptions options = new WebViewOptions();
+                    webViewObject.Init(options);
+                    
+                    PartnerSO partner = Resources.Load<PartnerSO>("Partner");
+                    string url = partner.GetUrl();
+                    webViewObject.LoadURL(url);
+                    webViewObject.IsVisible = true;
+#endif
+            }
+
             SetScreenPadding(left, top, right, bottom);
         }
-    }
 
-    /// <summary>
-    ///     Set webview screen padding in pixels.
-    /// </summary>
-    public void SetScreenPadding(int left, int top, int right, int bottom)
-    {
-        this.left = left;
-        this.top = top;
-        this.right = right;
-        this.bottom = bottom;
-
-        if (webViewObject)
+        /// <summary>
+        ///     Set WebView screen padding in pixels.
+        /// </summary>
+        public void SetScreenPadding(int left, int top, int right, int bottom)
         {
-            webViewObject.SetMargins(left, top, right, bottom);
-        }
-    }
+            this.left = left;
+            this.top = top;
+            this.right = right;
+            this.bottom = bottom;
 
-    public void SetVisible(bool visible)
-    {
-        webViewObject.IsVisible = visible;
-    }
+            if (webViewObject)
+            {
+                webViewObject.SetMargins(left, top, right, bottom);
+            }
 
-    private bool SetWebviewWindow()
-    {
-        bool hasNetwork = Application.internetReachability != NetworkReachability.NotReachable;
-        bool supported = true;
-
-        WebviewOptions options = new WebviewOptions();
-
-        if (hasNetwork)
-        {
-        #if !UNITY_EDITOR && UNITY_ANDROID
-            webViewObject = parent.gameObject.AddComponent<AndroidWebViewWindow>();
-        #elif !UNITY_EDITOR && UNITY_IOS
-            webViewObject = parent.gameObject.AddComponent<IOSWebViewWindow>();
-        #else
-            webViewObject = parent.gameObject.AddComponent<NotSupportedWebviewWindow>();
-            supported = false;
-        #endif
-        }
-        else
-        {
-            webViewObject = parent.gameObject.AddComponent<NotSupportedWebviewWindow>();
-            supported = false;
+            messagePanel.SetMargins(left, top, right, bottom);
         }
 
-        webViewObject.OnLoaded = OnLoaded;
-        webViewObject.OnJS = OnWebMessageReceived;
-
-        webViewObject.Init(options);
-
-        return supported;
-    }
-
-    // TODO: Dont write again if exists
-    private IEnumerator LoadWebviewURL()
-    {
-        string source = Path.Combine(Application.streamingAssetsPath, WebViewFileName);
-        string destination = Path.Combine(Application.persistentDataPath, WebViewFileName);
-        byte[] result = null;
-
-#if UNITY_ANDROID
-        using(UnityWebRequest request = UnityWebRequest.Get(source))
+        /// <summary>
+        ///     Set WebView window visible, shows or hides both message window and WebView
+        /// </summary>
+        /// <param name="visible">Visibility of the <see cref="webViewObject"/> or <see cref="messagePanel"/></param>
+        public void SetVisible(bool visible)
         {
-            yield return request.SendWebRequest();
-            result = request.downloadHandler.data;
+            if (webViewObject)
+            {
+                webViewObject.IsVisible = visible;
+            }
+            messagePanel.SetVisible(visible);
         }
-#elif UNITY_IOS
-        result = File.ReadAllBytes(source);
-#endif
 
-        File.WriteAllBytes(destination, result);
-        yield return null;
-
-        webViewObject.LoadURL($"file://{ destination}");
-    }
-
-    private void OnWebMessageReceived(string message)
-    {
-        Debug.Log(message);
-
-        if (message.Contains(".glb"))
+        private void OnWebMessageReceived(string message)
         {
-            webViewObject.IsVisible = false;
-            OnAvatarCreated?.Invoke(message);
-        }
-    }
+            Debug.Log($"--- WebView Message: {message}");
 
-    private void OnLoaded(string message)
-    {
-        webViewObject.EvaluateJS(@"
-            if (window && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.unityControl) {
-                window.Unity = {
-                    call: function(msg) { 
-                        window.webkit.messageHandlers.unityControl.postMessage(msg); 
-                    }
-                }
-            } 
-            else {
-                window.Unity = {
-                    call: function(msg) {
-                        window.location = 'unity:' + msg;
+            try
+            {
+                WebMessage webMessage = JsonConvert.DeserializeObject<WebMessage>(message);
+
+                if (webMessage.eventName == AVATAR_EXPORT_EVENT_NAME)
+                {
+                    if (webMessage.data.TryGetValue(DATA_URL_FIELD_NAME, out string avatarUrl))
+                    {
+                        webViewObject.IsVisible = false;
+                        OnAvatarCreated?.Invoke(avatarUrl);
+                        if (!KeepSessionAlive)
+                        {
+                            ClearAvatarData();
+                        }
                     }
                 }
             }
+            catch (Exception e)
+            {
+                Debug.Log($"--- Message is not JSON: {message}\nError Message: {e.Message}");
+            }
+        }
 
-            document.getElementById('loading').innerHTML = '<center>Failed to load on current browser.<br/>Please update your Operating System.</center>'
-        ");
+        /// <summary>
+        ///     Clear avatar data from the WebView local storage and reload RPM page for a new avatar creation.
+        /// </summary>
+        public void ClearAvatarData()
+        {
+            webViewObject.EvaluateJS(@"
+                window.localStorage.removeItem('persist:user');
+            ");
+            webViewObject.Reload();
+            Loaded = false;
+        }
+
+        private void OnLoaded(string message)
+        {
+            if (Loaded) return;
+
+            Debug.Log("--- WebView Loaded.");
+
+            webViewObject.EvaluateJS(@"
+                document.cookie = 'webview=true';
+
+                if (window && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.unityControl) {
+                    window.Unity = {
+                        call: function(msg) { 
+                            window.webkit.messageHandlers.unityControl.postMessage(msg); 
+                        }
+                    }
+                }
+                else {
+                    window.Unity = {
+                        call: function(msg) {
+                            window.location = 'unity:' + msg;
+                        }
+                    }
+                }
+
+                function subscribe(event) {
+                    const json = parse(event);
+                    const source = json.source;
+                        
+                    if (source !== 'readyplayerme') {
+                        return;
+                    }
+
+			        Unity.call(event.data);
+		        }
+
+                function parse(event) {
+                    try {
+                        return JSON.parse(event.data);
+                    } catch (error) {
+                        return null;
+                    }
+                }
+
+                window.postMessage(
+                    JSON.stringify({
+                        target: 'readyplayerme',
+                        type: 'subscribe',
+                        eventName: 'v1.**'
+                    }),
+                    '*'
+                );
+
+                window.removeEventListener('message', subscribe);
+                window.addEventListener('message', subscribe)
+            ");
+
+            Loaded = true;
+        }
+
+        private void OnDrawGizmos()
+        {
+            var rectTransform = transform as RectTransform;
+            if (rectTransform != null)
+            {
+                Gizmos.matrix = rectTransform.localToWorldMatrix;
+                Gizmos.color = Color.green;
+
+                var center = new Vector3((left - right) / 2f, (bottom - top) / 2f);
+                var rect = rectTransform.rect;
+                var size = new Vector3(rect.width - (left + right), rect.height - (bottom + top));
+
+                Gizmos.DrawWireCube(center, size);
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (!KeepSessionAlive)
+            {
+                ClearAvatarData();
+            }
+        }
     }
 }

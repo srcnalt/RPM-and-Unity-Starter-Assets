@@ -12,7 +12,7 @@ public enum WebkitContentMode
     Desktop = 2
 }
 
-public class WebviewOptions
+public class WebViewOptions
 {
     public bool Transparent = false;
     public bool Zoom = false;

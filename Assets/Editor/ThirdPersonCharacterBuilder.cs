@@ -1,3 +1,4 @@
+using Cinemachine;
 using UnityEditor;
 using UnityEngine;
 using StarterAssets;
@@ -22,6 +23,8 @@ public class ThirdPersonCharacterBuilder
     {
         // Cache selected object to add the components
         GameObject character = Selection.activeGameObject;
+
+        character.tag = "Player";
 
         // Create camera follow target
         GameObject cameraTarget = new GameObject(CameraTargetObjectName);
@@ -53,6 +56,11 @@ public class ThirdPersonCharacterBuilder
         // Add components with default values
         character.AddComponent<BasicRigidBodyPush>();
         character.AddComponent<StarterAssetsInputs>();
+        
+        // 
+        var camera = Object.FindObjectOfType<CinemachineVirtualCamera>();
+        camera.Follow = cameraTarget.transform;
+        camera.LookAt = cameraTarget.transform;
 
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
     }
